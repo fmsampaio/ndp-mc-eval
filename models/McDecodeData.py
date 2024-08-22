@@ -1,29 +1,29 @@
 import os
 from models.mc_data_classes import *
-from utils.defines import VVC_constants, YUV_VIDEOS
+from utils.defines import VVC_constants, YUV_VIDEOS, MV_TO_FRAC_POS, FRAC_POS_LIST
+
 
 class McDecodeData:
-    def __init__(self, video, mvFileGzPath = '', traceFileGzPath = '', calcSpec=True):
+    def __init__(self, mvFileGzPath, calcSpec=True):
         self.mcData = {}
         self.ctuLineKeys = []
         self.ctuLineKeysSet = set()
         
-        self.video = video
-        self.totalCtuLineArea = VVC_constants.CTU_size.value * int(YUV_VIDEOS[self.video]['res'].split('x')[1])
+        self.__parseExperimentInfo(mvFileGzPath)
+        self.__parseMvLog(mvFileGzPath)
 
-        print(f'CTU Line area: {self.totalCtuLineArea}')
+        self.totalCtuLineArea = VVC_constants.CTU_size.value * int(YUV_VIDEOS[self.video]['res'].split('x')[0])
 
 
-        if mvFileGzPath == '' and traceFileGzPath == '' or mvFileGzPath != '' and traceFileGzPath != '':
-            print('[error] Please inform exactely one input file!')
+    def __parseExperimentInfo(self, filePath):
+        # '/home/felipe/Projetos/ndp-repos/outputs/baseline/mvlogs-4bits/NDP_BasketballDrive_RA_22.log.gz'
+        self.experimentInfo = filePath.split('/')[-1].split('.')[0]
+        tokens = self.experimentInfo.split('_')
+        self.video = tokens[1]
+        self.config = tokens[2]
+        self.qp = tokens[3]
 
-        if mvFileGzPath != '':
-            self.__parseMvLog(mvFileGzPath)
-
-        if traceFileGzPath != '':
-            self.__parseTrace(traceFileGzPath)
-
-    def __addCtuWindowKey(self, currFramePoc, yCU):
+    def __addCtuLineKey(self, currFramePoc, yCU):
         ctuLineKey = (currFramePoc, yCU // VVC_constants.CTU_size.value)
         if ctuLineKey not in self.ctuLineKeysSet:
             self.ctuLineKeys.append(ctuLineKey)
@@ -53,7 +53,7 @@ class McDecodeData:
                 integMV = int(tokens[9]), int(tokens[10])
                 fracMV = int(tokens[11]), int(tokens[12])                
 
-                self.__addCtuWindowKey(currFramePoc, yCU)
+                self.__addCtuLineKey(currFramePoc, yCU)
                 
                 if currFramePoc not in self.mcData:
                     frameData = Frame(currFramePoc)
@@ -65,7 +65,7 @@ class McDecodeData:
                 cuData.addMotionInfo(refList, refFramePoc, fullMV, integMV, fracMV)             
 
         os.remove(filePath)
-
+    
     def printMcDecodeData(self):
         print(len(self.mcData))
         for framePoc in self.mcData.keys():
@@ -73,6 +73,12 @@ class McDecodeData:
             print(frame)
 
     def reportFracAnalysis(self):
+        #report = 'video;config;qp;frame;ctu_line;I;Q0;'
+        headerLine = 'Video; Config; QP; Frame; Ref. list; CTU line; Inter pctg.; I; H0; H1; H2; Q0; Q1; Q2; Q3; Q4; Q5; Q6; Q7; Q8; Q9; Q10; Q11; S\n'
+        outputPctg = headerLine
+        outputAccum = headerLine
+
+        experimentReport = f'{self.video};{self.config};{self.qp};'
         for _, frameData in self.mcData.items():
             for _, ctuLineData in frameData.ctuLines.items():
                 accumMVs = { 'L0' : {}, 'L1' : {}}
@@ -85,19 +91,50 @@ class McDecodeData:
                             accumCuAreaInter += cuArea
 
                         for refList, motionInfo in cuData.motionInfo.items():
-                            fracMV = motionInfo.fracMV
-                            if fracMV not in accumMVs[refList]:
-                                accumMVs[refList][fracMV] = 0
+                            mvPos = MV_TO_FRAC_POS[motionInfo.fracMV]
+                            if mvPos not in accumMVs[refList]:
+                                accumMVs[refList][mvPos] = 0
 
-                            accumMVs[refList][fracMV] += cuArea
+                            accumMVs[refList][mvPos] += cuArea
                             accumInter[refList] += cuArea
                     
-                print(frameData.poc, ctuLineData.ctuLine, end=': ')
                 reportInterAnalysis = float(accumCuAreaInter) / self.totalCtuLineArea
                 reportFracAnalysis = { 'L0' : {} , 'L1' : {} }
                 for refList, accums in accumMVs.items():
-                    for fracMV, accumMV in accums.items():
-                        reportFracAnalysis[refList][fracMV] = float(accumMV) / accumInter[refList]
-                print(reportInterAnalysis)
-                print(reportFracAnalysis)
-                input()
+                    for mvPos, accumMV in accums.items():
+                        reportFracAnalysis[refList][mvPos] = float(accumMV) / accumInter[refList]
+
+                for refList, report in reportFracAnalysis.items():
+                    reportLine = f'{experimentReport}{frameData.poc};{refList};{ctuLineData.ctuLine};'
+                    reportLine += f'{"{:.4f}".format(float(accumInter[refList]) / self.totalCtuLineArea)};'
+
+                    for mvPos in FRAC_POS_LIST:
+                        pctgToReport = 0
+                        if mvPos in report:
+                            pctgToReport += report[mvPos]
+                        
+                        reportLine += f'{"{:.4f}".format(pctgToReport)}'
+                        if mvPos != 'S':
+                            reportLine += ';'
+                        else:
+                            reportLine += '\n'
+                    outputPctg += reportLine
+
+                for refList, accum in accumMVs.items():
+                    reportLine = f'{experimentReport}{frameData.poc};{refList};{ctuLineData.ctuLine};'
+                    reportLine += f'{"{:.4f}".format(float(accumInter[refList]) / self.totalCtuLineArea)};'
+
+                    for mvPos in FRAC_POS_LIST:
+                        accumToReport = 0
+                        if mvPos in accum:
+                            accumToReport += accum[mvPos]
+                        
+                        reportLine += str(accumToReport)
+                        if mvPos != 'S':
+                            reportLine += ';'
+                        else:
+                            reportLine += '\n'
+                    outputAccum += reportLine
+        return outputAccum, outputPctg
+                    
+                
