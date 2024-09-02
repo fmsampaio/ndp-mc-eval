@@ -4,10 +4,12 @@ from utils.defines import VVC_constants, YUV_VIDEOS, MV_TO_FRAC_POS, FRAC_POS_LI
 
 
 class McDecodeData:
-    def __init__(self, mvFileGzPath, calcSpec=True):
+    def __init__(self, mvFileGzPath, calcSpec=True, quarterOnly=True):
         self.mcData = {}
         self.ctuLineKeys = []
         self.ctuLineKeysSet = set()
+
+        self.quarterOnly = quarterOnly
         
         self.__parseExperimentInfo(mvFileGzPath)
         self.__parseMvLog(mvFileGzPath)
@@ -62,6 +64,10 @@ class McDecodeData:
                     frameData = self.mcData[currFramePoc]
 
                 cuData = frameData.addCuInCTU(xCU, yCU, wCU, hCU)
+
+                if self.quarterOnly:
+                    fracMV = (fracMV[0] & (~3), fracMV[1] & (~3))
+
                 cuData.addMotionInfo(refList, refFramePoc, fullMV, integMV, fracMV)             
 
         os.remove(filePath)
