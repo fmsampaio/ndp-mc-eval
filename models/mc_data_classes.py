@@ -95,7 +95,7 @@ class MotionInfo:
         self.fracMV = fracMV
         
     def isFracMC(self):
-        return self.fracPosition != 0
+        return self.fracMV != (0,0)
 
     def __str__(self):
         return f'Ref. {self.refPoc} | Full. {self.fullMV} Integ. {self.integMV} Frac. {self.fracMV}'
