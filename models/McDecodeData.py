@@ -6,8 +6,8 @@ from utils.defines import VVC_constants, YUV_VIDEOS, MV_TO_FRAC_POS, FRAC_POS_LI
 class McDecodeData:
     def __init__(self, mvFileGzPath, calcSpec=True, quarterOnly=True):
         self.mcData = {}
-        self.ctuLineKeys = []
-        self.ctuLineKeysSet = set()
+        self.ctuWindowKeys = []
+        self.ctuWindowKeysSet = set()
 
         self.quarterOnly = quarterOnly
         
@@ -25,12 +25,18 @@ class McDecodeData:
         self.config = tokens[2]
         self.qp = tokens[3]
 
-    def __addCtuLineKey(self, currFramePoc, yCU):
-        ctuLineKey = (currFramePoc, yCU // VVC_constants.CTU_size.value)
-        if ctuLineKey not in self.ctuLineKeysSet:
-            self.ctuLineKeys.append(ctuLineKey)
-            self.ctuLineKeysSet.add(ctuLineKey)
-        return ctuLineKey
+    def __addCtuWindowKey(self, currFramePoc, xCU, yCU):
+        frameWidth = YUV_VIDEOS[self.video]['res'][0]
+        if frameWidth in [3840, 4096]:
+            ctuWindowId = (yCU // VVC_constants.CTU_size.value) * 2 + xCU // (frameWidth // 2)
+        else:
+            ctuWindowId = yCU // VVC_constants.CTU_size.value      
+
+        ctuWindowKey = (currFramePoc, ctuWindowId)
+        if ctuWindowKey not in self.ctuWindowKeysSet:
+            self.ctuWindowKeys.append(ctuWindowKey)
+            self.ctuWindowKeysSet.add(ctuWindowKey)
+        return ctuWindowKey
     
     def __parseMvLog(self, fileGzPath):
         unGzipMvLogFileCmd = f'gzip -dk {fileGzPath}'
@@ -55,7 +61,7 @@ class McDecodeData:
                 integMV = int(tokens[9]), int(tokens[10])
                 fracMV = int(tokens[11]), int(tokens[12])                
 
-                self.__addCtuLineKey(currFramePoc, yCU)
+                self.__addCtuWindowKey(currFramePoc, xCU, yCU)
                 
                 if currFramePoc not in self.mcData:
                     frameData = Frame(currFramePoc)
