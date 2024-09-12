@@ -1,6 +1,7 @@
 import os
 from models.mc_data_classes import *
 from utils.defines import VVC_constants, YUV_VIDEOS, MV_TO_FRAC_POS, FRAC_POS_LIST
+from utils.utils import getCtuWindowId
 
 
 class McDecodeData:
@@ -12,10 +13,14 @@ class McDecodeData:
         self.quarterOnly = quarterOnly
         
         self.__parseExperimentInfo(mvFileGzPath)
+
+        self.frameWidth = YUV_VIDEOS[self.video]['res'][0]
+        if self.frameWidth in [3840, 4096]:
+            self.totalCtuLineArea = VVC_constants.CTU_size.value * (self.frameWidth // 2)
+        else:
+            self.totalCtuLineArea = VVC_constants.CTU_size.value * self.frameWidth
+
         self.__parseMvLog(mvFileGzPath)
-
-        self.totalCtuLineArea = VVC_constants.CTU_size.value * int(YUV_VIDEOS[self.video]['res'].split('x')[0])
-
 
     def __parseExperimentInfo(self, filePath):
         # '/home/felipe/Projetos/ndp-repos/outputs/baseline/mvlogs-4bits/NDP_BasketballDrive_RA_22.log.gz'
@@ -26,11 +31,7 @@ class McDecodeData:
         self.qp = tokens[3]
 
     def __addCtuWindowKey(self, currFramePoc, xCU, yCU):
-        frameWidth = YUV_VIDEOS[self.video]['res'][0]
-        if frameWidth in [3840, 4096]:
-            ctuWindowId = (yCU // VVC_constants.CTU_size.value) * 2 + xCU // (frameWidth // 2)
-        else:
-            ctuWindowId = yCU // VVC_constants.CTU_size.value      
+        ctuWindowId = getCtuWindowId(xCU, yCU, self.frameWidth)   
 
         ctuWindowKey = (currFramePoc, ctuWindowId)
         if ctuWindowKey not in self.ctuWindowKeysSet:
@@ -64,8 +65,8 @@ class McDecodeData:
                 self.__addCtuWindowKey(currFramePoc, xCU, yCU)
                 
                 if currFramePoc not in self.mcData:
-                    frameData = Frame(currFramePoc)
-                    self.mcData[currFramePoc] = Frame(currFramePoc)
+                    frameData = Frame(currFramePoc, self.frameWidth)
+                    self.mcData[currFramePoc] = frameData
                 else:
                     frameData = self.mcData[currFramePoc]
 
@@ -77,6 +78,8 @@ class McDecodeData:
                 cuData.addMotionInfo(refList, refFramePoc, fullMV, integMV, fracMV)             
 
         os.remove(filePath)
+
+        print(self.ctuWindowKeysSet)
     
     def printMcDecodeData(self):
         print(len(self.mcData))
@@ -84,9 +87,9 @@ class McDecodeData:
             frame = self.mcData[framePoc]
             print(frame)
 
-    def reportFracAnalysis(self):
+    def reportFracAnalysisQuarter(self):
         #report = 'video;config;qp;frame;ctu_line;I;Q0;'
-        headerLine = 'Video; Config; QP; Frame; Ref. list; CTU line; Inter pctg.; I; H0; H1; H2; Q0; Q1; Q2; Q3; Q4; Q5; Q6; Q7; Q8; Q9; Q10; Q11; S\n'
+        headerLine = 'Video; Config; QP; Frame; Ref. list; CTU line; Inter pctg.; I; H0; H1; H2; Q0; Q1; Q2; Q3; Q4; Q5; Q6; Q7; Q8; Q9; Q10; Q11\n'
         outputPctg = headerLine
         outputAccum = headerLine
 
@@ -142,7 +145,7 @@ class McDecodeData:
                             accumToReport += accum[mvPos]
                         
                         reportLine += str(accumToReport)
-                        if mvPos != 'S':
+                        if mvPos != 'Q11':
                             reportLine += ';'
                         else:
                             reportLine += '\n'

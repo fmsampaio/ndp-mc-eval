@@ -1,15 +1,17 @@
 from utils.defines import VVC_constants
+from utils.utils import getCtuWindowId
 
 class Frame:
-    def __init__(self, poc):
+    def __init__(self, poc, frameWidth):
         self.poc = poc
         self.ctuLines = {}
+        self.frameWidth = frameWidth
     
     def addCuInCTU(self, xCU, yCU, wCU, hCU):
         xCTU = xCU // VVC_constants.CTU_size.value
         yCTU = yCU // VVC_constants.CTU_size.value
 
-        ctuLineId = yCTU
+        ctuLineId = getCtuWindowId(xCU, yCU, self.frameWidth)
 
         if ctuLineId not in self.ctuLines:
             self.ctuLines[ctuLineId] = CTULine(ctuLineId)

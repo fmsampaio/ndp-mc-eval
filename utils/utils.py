@@ -1,4 +1,4 @@
-from defines import VVC_constants, Token_offset, FRAC_POS_TO_FIXED, FIXED_TO_FRAC_POS
+from .defines import VVC_constants, Token_offset, MV_TO_FRAC_POS
 
 def get_n_in_2bit_fixed_point(n):
     return n >> 2, ((n >> 1) & 1) *  0.5 + (n & 1) *  0.25
@@ -12,7 +12,7 @@ def getFracPosition(vector):
     _ , xFracMV = break_into_integ_n_frac(xMV)
     _ , yFracMV = break_into_integ_n_frac(yMV)
 
-    return FIXED_TO_FRAC_POS[(abs(xFracMV), abs(yFracMV))]
+    return MV_TO_FRAC_POS[(abs(xFracMV), abs(yFracMV))]
 
 def loadLines(file_path):
     lines = []
@@ -58,6 +58,15 @@ def getLine(entry):
 
 def getAffineAnnotation(entry):
     return 1
+
+def getCtuWindowId(xCU, yCU, frameWidth):
+    if frameWidth in [3840, 4096]:
+        ctuWindowId = ( (yCU // VVC_constants.CTU_size.value) * 2 ) + ( xCU // (frameWidth // 2) )
+    else:
+        ctuWindowId = yCU // VVC_constants.CTU_size.value  
+    
+    return ctuWindowId
+
 
 relevantMetrics = {
     'MVL0'          : getMV, 

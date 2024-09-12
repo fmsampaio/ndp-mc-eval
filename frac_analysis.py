@@ -5,7 +5,7 @@ OUTPUTS_PATH = '/home/felipe/Projetos/ndp-repos/outputs/'
 MV_LOG_FILES_PATH = f'{OUTPUTS_PATH}baseline/mvlogs-4bits/'
 FRAC_ANALYSIS_REPORT_PATH = f'{OUTPUTS_PATH}frac-analysis-reports/'
 
-VIDEOS = ['BasketballDrive']
+VIDEOS = ['Tango2']
 
 if __name__ == '__main__':
 
@@ -31,10 +31,10 @@ if __name__ == '__main__':
 
         print(f'[info] [{fileCount}/{len(filtered)}] Processing {mvLogFileName}')
         
-        mvlog = McDecodeData(f'{MV_LOG_FILES_PATH}{mvLogFileName}')
+        mvlog = McDecodeData(f'{MV_LOG_FILES_PATH}{mvLogFileName}', quarterOnly=True)
 
         fpAccum = open(f'{FRAC_ANALYSIS_REPORT_PATH}{mvlog.experimentInfo}_frac_analysis.csv', 'w')
-        reportAccum, _ = mvlog.reportFracAnalysis() 
+        reportAccum, _ = mvlog.reportFracAnalysisQuarter() 
         fpAccum.write(reportAccum)
         fpAccum.close()        
         
