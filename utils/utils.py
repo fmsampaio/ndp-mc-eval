@@ -25,7 +25,7 @@ def getMV(entry):
     xIntegMV, xFracMV = get_n_in_2bit_fixed_point(int(entry[-2]))
     yIntegMV, yFracMV = get_n_in_2bit_fixed_point(int(entry[-1]))
     
-    fracPosition = FIXED_TO_FRAC_POS[(xFracMV, yFracMV)]
+    fracPosition = MV_TO_FRAC_POS[(xFracMV, yFracMV)]
     # print((xIntegMV, yIntegMV, fracPosition))
     return (xIntegMV, yIntegMV, fracPosition) 
 
@@ -67,6 +67,39 @@ def getCtuWindowId(xCU, yCU, frameWidth):
     
     return ctuWindowId
 
+def getCtuWindowLimits(ctuWindowId, frameWidth, frameHeight):
+    xWindow = ctuWindowId % 2
+    yWindow = ctuWindowId // 2
+
+    if frameWidth in [3840, 4096]:
+        xLeft = xWindow * (frameWidth // 2)
+        xRight = (xWindow + 1) * (frameWidth // 2)
+    else:
+        xLeft = 0
+        xRight = frameWidth
+    
+    yTop = yWindow * VVC_constants.CTU_size.value
+    yBottom = (yWindow + 1) * VVC_constants.CTU_size.value
+    if yBottom > frameHeight:
+        yBottom = frameHeight
+    
+    return xLeft, xRight, yTop, yBottom
+
+def getInterpWindowLimits(ctuWindowId, frameWidth, ctuWindowHeight, xOffset, yOffset):
+    xWindow = ctuWindowId % 2
+    yWindow = ctuWindowId // 2
+
+    xLeft = xOffset
+    if frameWidth in [3840, 4096]:
+        xLeft += xWindow * (frameWidth // 2)
+    else:
+        xLeft += 0
+    xRight = xLeft + VVC_constants.INTERP_WINDOW_WIDTH.value
+    
+    yTop = yOffset + (yWindow * VVC_constants.CTU_size.value)
+    yBottom = yTop + ctuWindowHeight
+
+    return xLeft, xRight, yTop, yBottom
 
 relevantMetrics = {
     'MVL0'          : getMV, 

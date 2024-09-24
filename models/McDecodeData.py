@@ -24,6 +24,7 @@ class McDecodeData:
 
     def __parseExperimentInfo(self, filePath):
         # '/home/felipe/Projetos/ndp-repos/outputs/baseline/mvlogs-4bits/NDP_BasketballDrive_RA_22.log.gz'
+        filePath = filePath.replace('Netflix_', '')
         self.experimentInfo = filePath.split('/')[-1].split('.')[0]
         tokens = self.experimentInfo.split('_')
         self.video = tokens[1]
@@ -76,16 +77,27 @@ class McDecodeData:
                     fracMV = (fracMV[0] & (~3), fracMV[1] & (~3))
 
                 cuData.addMotionInfo(refList, refFramePoc, fullMV, integMV, fracMV)             
-
         os.remove(filePath)
-
-        print(self.ctuWindowKeysSet)
-    
+        
     def printMcDecodeData(self):
         print(len(self.mcData))
         for framePoc in self.mcData.keys():
             frame = self.mcData[framePoc]
             print(frame)
+
+    def reportFracMcPctg(self):
+        accumFrac = 0
+        accumTotalMC = 0
+        for _, frameData in self.mcData.items():
+            for _, ctuLineData in frameData.ctuLines.items():
+                for _, ctuData in ctuLineData.CTUs.items():
+                    for _, cuData in ctuData.CUs.items():
+                        for _, motionInfo in cuData.motionInfo.items():
+                            cuSize = cuData.xCU * cuData.yCU
+                            if motionInfo.isFracMC():
+                                accumFrac += cuSize
+                            accumTotalMC += cuSize
+        return float(accumFrac) / accumTotalMC
 
     def reportFracAnalysisQuarter(self):
         #report = 'video;config;qp;frame;ctu_line;I;Q0;'
@@ -111,13 +123,14 @@ class McDecodeData:
                                 accumMVs[refList][mvPos] = 0
 
                             accumMVs[refList][mvPos] += cuArea
-                            accumInter[refList] += cuArea
+                            if mvPos != 0:
+                                accumInter[refList] += cuArea
                     
                 reportInterAnalysis = float(accumCuAreaInter) / self.totalCtuLineArea
                 reportFracAnalysis = { 'L0' : {} , 'L1' : {} }
                 for refList, accums in accumMVs.items():
                     for mvPos, accumMV in accums.items():
-                        reportFracAnalysis[refList][mvPos] = float(accumMV) / accumInter[refList]
+                        reportFracAnalysis[refList][mvPos] = float(accumMV) / (accumInter[refList])
 
                 for refList, report in reportFracAnalysis.items():
                     reportLine = f'{experimentReport}{frameData.poc};{refList};{ctuLineData.ctuLine};'
@@ -129,7 +142,7 @@ class McDecodeData:
                             pctgToReport += report[mvPos]
                         
                         reportLine += f'{"{:.4f}".format(pctgToReport)}'
-                        if mvPos != 'S':
+                        if mvPos != 'Q11':
                             reportLine += ';'
                         else:
                             reportLine += '\n'
@@ -151,5 +164,3 @@ class McDecodeData:
                             reportLine += '\n'
                     outputAccum += reportLine
         return outputAccum, outputPctg
-                    
-                
