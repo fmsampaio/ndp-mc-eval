@@ -4,7 +4,20 @@ from utils.utils import *
 from utils.defines import *
 from models.Cycles import Cycles
 
-import pyperclip
+import pyperclip, os
+
+OUTPUTS_PATH = '/home/felipe/Projetos/ndp-repos/outputs/'
+MV_LOG_FILES_PATH = f'{OUTPUTS_PATH}baseline/mvlogs-4bits/'
+
+VIDEOS = [
+    # 'CatRobot',
+    # 'FoodMarket4',
+    'DinnerScene',
+    'PierSeaside',
+    'Boat',
+    'TunnelFlag',
+    'SquareAndTimelapse'
+]
 
 def getPrefFracStats(fracCounters):
     prefFrac = -1
@@ -146,26 +159,118 @@ def reportCyclesEstimation(avxCycles, vimaCycles, interpWindowStats):
         output += f'{key[0]};{key[1]};{refList};{"{:.3f}".format(prefFracHit)};{"{:.3f}".format(prefFracHitInterp)};{int(cuSizeAvg)};{avx};{vima}\n'
     return output
 
+def evaluateClscTh(avxCycles, vimaCycles, interpWindowStats):
+
+    avxCase = {}
+    vimaCase = {}
+    bestThCase = {
+        'th' : -1,
+        'cycles' : 99999999999999,
+        'speedup' : 0
+    }
+
+    ctuWindowKeys = avxCycles.keys()
+
+    for clscTh in range(100, -1, -1):
+        clscThFloat = float(clscTh) / 100.0
+
+        cyclesCounter = 0
+
+        for key in ctuWindowKeys:
+            avxCtuWindowCycles = avxCycles[key]
+            vimaCtuWindowCycles = vimaCycles[key]
+            for refList in ['L0','L1']:
+                ctuWindowKey = key + (refList, )
+                prefFracHitInterp = interpWindowStats[ctuWindowKey]['pref_frac_hit_interp']
+                if prefFracHitInterp != -1:
+                    if prefFracHitInterp >= clscThFloat:
+                        if refList in vimaCtuWindowCycles:
+                            cyclesCounter += vimaCtuWindowCycles[refList]
+                    else:
+                        if refList in avxCtuWindowCycles:
+                            cyclesCounter += avxCtuWindowCycles[refList]
+
+        if clscTh == 0: # Case-VIMA: Speculative VIMA MC is ALWAYS applied
+            vimaCase = {
+                'th' : clscThFloat,
+                'cycles' : cyclesCounter,
+                'ratio' :  float(cyclesCounter - avxCase['cycles']) / avxCase['cycles']
+            }
+
+        elif clscTh == 100: # Case-AVX: Spaculative VIMA MC is NEVER applied
+            avxCase = {
+                'th' : clscThFloat,
+                'cycles' : cyclesCounter
+            }
+        else:
+            if cyclesCounter < bestThCase['cycles']:
+                bestThCase = {
+                    'th' : clscThFloat,
+                    'cycles' : cyclesCounter,
+                    'ratio' : float(cyclesCounter - avxCase['cycles']) / avxCase['cycles']
+                }
+    
+    print(avxCase)
+    print(vimaCase)
+    print(bestThCase)
+
+    return avxCase, vimaCase, bestThCase
+
+def buildReportLine(exp, avx, vima, bestTh):
+    reportLine =  f'{exp[0]};{exp[1]};{exp[2]};'
+    reportLine += f'{avx["cycles"]};{vima["cycles"]};{bestTh["th"]};{bestTh["cycles"]};{vima["ratio"]};{bestTh["ratio"]}\n'
+    return reportLine
 
 def main():
-    mcData = McDecodeData(
-        mvFileGzPath = '/home/felipe/Projetos/ndp-repos/outputs/baseline/mvlogs-4bits/NDP_Netflix_PierSeaside_LD_22.log.gz', 
-        #mvFileGzPath = '/home/felipe/Projetos/ndp-repos/outputs/frac-only/mvlogs-opt-4bits/NDP_CatRobot_LD_37.opt.log.gz', 
-        quarterOnly = True,
-    )
+
+    mvLogFilesList = os.listdir(MV_LOG_FILES_PATH)
+    mvLogFilesList.sort()
+    
+    if len(VIDEOS) == 0:
+        filtered = mvLogFilesList
+    
+    else:
+        filtered = []
+        for file in mvLogFilesList:
+            for video in VIDEOS:
+                if video in file and '.log.gz' in file:
+                    filtered.append(file)
+
+    fileCount = 1
+
+    print(len(filtered), filtered)
+
     cyclesData = Cycles('/home/felipe/Projetos/ndp-repos/ndp-tcsvt/inputs/kernels.csv')
 
-    interpWindowStats = calculateInterpWindowStatistics(mcData)
+    fpOutput = open(f'{OUTPUTS_PATH}clsc-th-analysis.csv', 'w')
 
-    avxCycles, vimaCycles = estimateCycles(mcData, interpWindowStats, cyclesData)
-    
-    report = reportCyclesEstimation(avxCycles, vimaCycles, interpWindowStats)
+    for mvLogFileName in filtered:
+        if '.log.gz' not in mvLogFileName:
+            continue
 
-    pyperclip.copy(report)
-    # print(report)
-    # print(cyclesData.unsupportedBlockSizes)
+        print(f'[info] [{fileCount}/{len(filtered)}] Processing {mvLogFileName}')
+        fileCount += 1        
+
+        mcData = McDecodeData(
+            mvFileGzPath = f'{MV_LOG_FILES_PATH}{mvLogFileName}', 
+            quarterOnly  = True
+        )
+
+        experimentID = (mcData.video, mcData.config, mcData.qp)
+        interpWindowStats = calculateInterpWindowStatistics(mcData)
+
+        avxCycles, vimaCycles = estimateCycles(mcData, interpWindowStats, cyclesData)
+        
+        #report = reportCyclesEstimation(avxCycles, vimaCycles, interpWindowStats)
+
+        avx, vima, bestTh = evaluateClscTh(avxCycles, vimaCycles, interpWindowStats)
+
+        reportLine = buildReportLine(experimentID, avx, vima, bestTh)
+        print(reportLine)
+
+        fpOutput.write(reportLine)
     
-    
+    fpOutput.close()
 
 if __name__ == '__main__':
     main()
