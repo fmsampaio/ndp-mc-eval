@@ -31,8 +31,8 @@ class Cycles():
     def get_operations(self, fracPos):
         return INTERP_OPERATIONS[fracPos]
 
-    def get_cycles(self, size, vector, isa):
-        operations = self.get_operations(vector)
+    def get_cycles(self, size, fracPos, isa):
+        operations = self.get_operations(fracPos)
         sizeLabel = self.get_label(*size)
 
         if sizeLabel not in self.cycles[isa.value]:
