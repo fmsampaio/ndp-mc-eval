@@ -10,8 +10,8 @@ OUTPUTS_PATH = '/home/felipe/Projetos/ndp-repos/outputs/'
 MV_LOG_FILES_PATH = f'{OUTPUTS_PATH}baseline/mvlogs-4bits/'
 
 VIDEOS = [
-    # 'CatRobot',
-    # 'FoodMarket4',
+    'CatRobot',
+    'FoodMarket4',
     'DinnerScene',
     'PierSeaside',
     'Boat',
@@ -33,8 +33,22 @@ def getPrefFracStats(fracCounters):
 
     prefHalfFrac = 2 if fracCounters[2] >= fracCounters[8] else 8
 
-    prefFracHit = float(highestOcc) / sum(fracCounters)
-    prefFracHitInterp = float(highestOcc) / (2048*128)
+    totalOcc = highestOcc
+
+    if len(FRAC_INTERP_DEPENDENCIES[prefFrac]) > 0:
+        if prefFrac in [5, 7, 13, 15]:
+            if prefHalfFrac == 8:
+                prefFracDependencies = FRAC_INTERP_DEPENDENCIES[prefFrac][0]
+            else: # prefHalfFrac == 2:
+                prefFracDependencies = FRAC_INTERP_DEPENDENCIES[prefFrac][1]
+        else:
+            prefFracDependencies = FRAC_INTERP_DEPENDENCIES[prefFrac][0]
+        
+        for dep in prefFracDependencies:
+            totalOcc += fracCounters[dep]        
+
+    prefFracHit = float(totalOcc) / sum(fracCounters)
+    prefFracHitInterp = float(totalOcc) / (2048*128)
 
     return prefFrac, prefFracHit, prefFracHitInterp, prefHalfFrac
 
@@ -92,7 +106,7 @@ def speculativeInterpolationHit(fracPos, prefFrac, prefHalfFrac):
     else:
         return False        
 
-def estimateCycles(mcData, interpWindowStats, cyclesData, countIntegerMC=False):
+def estimateCycles(mcData, interpWindowStats, cyclesData, countIntegerMC=False, decoderOptimization=False, optClscTh=-1):
     print("Counting cycles...")
     
     avxCycles = {}
@@ -116,9 +130,7 @@ def estimateCycles(mcData, interpWindowStats, cyclesData, countIntegerMC=False):
 
                         prefFrac = interpWindowStats[ctuWindowKey]['pref_frac']
                         prefHalfFrac = interpWindowStats[ctuWindowKey]['pref_half_frac']
-                        prefFracHit = interpWindowStats[ctuWindowKey]['pref_frac_hit']
                         prefFracHitInterp = interpWindowStats[ctuWindowKey]['pref_frac_hit_interp']
-                        cuSizeAvg = interpWindowStats[ctuWindowKey]['cu_size_avg']
 
                         fracPos = MV_TO_FRAC_POS_QUARTER[motionInfo.fracMV]
 
@@ -129,7 +141,8 @@ def estimateCycles(mcData, interpWindowStats, cyclesData, countIntegerMC=False):
 
                             # if fracPos != prefFrac:
                             if not speculativeInterpolationHit(fracPos, prefFrac, prefHalfFrac):
-                                vimaCycles[keyFrameCtuLineOnly][refList] += cyclesData.get_cycles(cuSize, fracPos, ISA.AVX2)
+                                if not (decoderOptimization and prefFracHitInterp >= optClscTh):
+                                    vimaCycles[keyFrameCtuLineOnly][refList] += cyclesData.get_cycles(cuSize, fracPos, ISA.AVX2)
                         
                         elif countIntegerMC:
                             avxCycles[keyFrameCtuLineOnly][refList] += cyclesData.get_cycles(cuSize, fracPos, ISA.AVX2)
@@ -216,8 +229,8 @@ def evaluateClscTh(avxCycles, vimaCycles, interpWindowStats):
 
     return avxCase, vimaCase, bestThCase
 
-def buildReportLine(exp, avx, vima, bestTh):
-    reportLine =  f'{exp[0]};{exp[1]};{exp[2]};'
+def buildReportLine(exp, avx, vima, bestTh, optClscTh):
+    reportLine =  f'{exp[0]};{exp[1]};{exp[2]};{optClscTh};'
     reportLine += f'{avx["cycles"]};{vima["cycles"]};{bestTh["th"]};{bestTh["cycles"]};{vima["ratio"]};{bestTh["ratio"]}\n'
     return reportLine
 
@@ -242,35 +255,45 @@ def main():
 
     cyclesData = Cycles('/home/felipe/Projetos/ndp-repos/ndp-tcsvt/inputs/kernels.csv')
 
-    fpOutput = open(f'{OUTPUTS_PATH}clsc-th-analysis.csv', 'w')
+    optClscThs = [0.05, 0.15, 0.25, 0.35]
 
-    for mvLogFileName in filtered:
-        if '.log.gz' not in mvLogFileName:
-            continue
+    for optClscTh in optClscThs:
 
-        print(f'[info] [{fileCount}/{len(filtered)}] Processing {mvLogFileName}')
-        fileCount += 1        
+        fpOutput = open(f'{OUTPUTS_PATH}clsc-th-analysis-{str(optClscTh)}.csv', 'w')
 
-        mcData = McDecodeData(
-            mvFileGzPath = f'{MV_LOG_FILES_PATH}{mvLogFileName}', 
-            quarterOnly  = True
-        )
+        for mvLogFileName in filtered:
+            if '.log.gz' not in mvLogFileName:
+                continue
 
-        experimentID = (mcData.video, mcData.config, mcData.qp)
-        interpWindowStats = calculateInterpWindowStatistics(mcData)
+            print(f'[info] [{fileCount}/{len(filtered)}] Processing {mvLogFileName}')
+            fileCount += 1        
 
-        avxCycles, vimaCycles = estimateCycles(mcData, interpWindowStats, cyclesData)
+            mcData = McDecodeData(
+                mvFileGzPath = f'{MV_LOG_FILES_PATH}{mvLogFileName}', 
+                quarterOnly  = True
+            )
+
+            experimentID = (mcData.video, mcData.config, mcData.qp)
+            interpWindowStats = calculateInterpWindowStatistics(mcData)
+
+            avxCycles, vimaCycles = estimateCycles(
+                mcData, 
+                interpWindowStats, 
+                cyclesData,
+                decoderOptimization=True,
+                optClscTh=optClscTh
+                )
+            
+            #report = reportCyclesEstimation(avxCycles, vimaCycles, interpWindowStats)
+
+            avx, vima, bestTh = evaluateClscTh(avxCycles, vimaCycles, interpWindowStats)
+
+            reportLine = buildReportLine(experimentID, avx, vima, bestTh, optClscTh)
+            print(reportLine)
+
+            fpOutput.write(reportLine)
         
-        #report = reportCyclesEstimation(avxCycles, vimaCycles, interpWindowStats)
-
-        avx, vima, bestTh = evaluateClscTh(avxCycles, vimaCycles, interpWindowStats)
-
-        reportLine = buildReportLine(experimentID, avx, vima, bestTh)
-        print(reportLine)
-
-        fpOutput.write(reportLine)
-    
-    fpOutput.close()
+        fpOutput.close()
 
 if __name__ == '__main__':
     main()
